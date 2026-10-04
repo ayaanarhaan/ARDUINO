@@ -1,0 +1,35 @@
+================================================================================================
+                                    ESP32 MASTER PINOUT MAP
+================================================================================================
+
+1. 0.96" I2C OLED DISPLAY
+   • VCC  ----------> ESP32 3V3 (or 5V)       [Red Wire]    :: Power Supply
+   • GND  ----------> ESP32 GND               [Black Wire]  :: Ground
+   • SCL  ----------> ESP32 GPIO 22           [Yellow Wire] :: I2C Clock Line
+   • SDA  ----------> ESP32 GPIO 21           [Blue Wire]   :: I2C Data Line
+
+2. CAPACITIVE SOIL MOISTURE SENSOR
+   • VCC  ----------> ESP32 3V3               [Red Wire]    :: Power Supply
+   • GND  ----------> ESP32 GND               [Black Wire]  :: Ground
+   • AOUT ----------> ESP32 GPIO 34           [Orange Wire] :: Analog Read Pin (Moisture %)
+
+3. HC-SR04 ULTRASONIC SENSOR
+   • VCC  ----------> ESP32 5V / VIN          [Red Wire]    :: 5V Power Supply
+   • GND  ----------> ESP32 GND               [Black Wire]  :: Ground
+   • TRIG ----------> ESP32 GPIO 5            [Green Wire]  :: Trigger Pulse Signal
+   • ECHO ----------> ESP32 GPIO 18           [White Wire]  :: Distance Return Signal
+
+4. PUSH BUTTON (Threshold Selector)
+   • Pin 1 ---------> ESP32 GPIO 4            [Purple Wire] :: Target Moisture Cycle (40/60/80%)
+   • Pin 2 ---------> ESP32 GND               [Black Wire]  :: Uses internal INPUT_PULLUP
+
+5. BUZZER MODULE (Proximity Alert)
+   • VCC (+) -------> ESP32 GPIO 12           [Brown Wire]  :: Alert Signal Trigger
+   • GND (-) -------> ESP32 GND               [Black Wire]  :: Ground
+
+6. SG90 SERVO MOTOR (Bottle Valve Control)
+   • VCC (Red) -----> ESP32 5V / VIN          [Red Wire]    :: Direct 5V Power
+   • GND (Black) ---> ESP32 GND               [Black Wire]  :: Common Ground
+   • PWM (Yellow) --> ESP32 GPIO 13           [Yellow Wire] :: Valve Servo Angle Control
+
+================================================================================================
