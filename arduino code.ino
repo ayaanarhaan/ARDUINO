@@ -7,160 +7,114 @@
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// Pin Mappings
-#define TRIG_PIN 5
-#define ECHO_PIN 18
-#define PAN_PIN  13
-#define TILT_PIN 12
-#define DOOR_LEFT_PIN  14
-#define DOOR_RIGHT_PIN 27
-#define LDR_PIN 34  // LDR Sensor Module DO Pin
+// Pin Definitions
+const int SOIL_PIN = 34;       // Analog input for soil sensor
+const int TRIG_PIN = 5;        // Ultrasonic Trig
+const int ECHO_PIN = 18;       // Ultrasonic Echo
+const int BUTTON_PIN = 4;      // Push button pin
+const int SERVO_PIN = 13;      // SG90 Servo pin
+const int BUZZER_PIN = 12;     // Buzzer alert pin
 
-// Servo Objects
-Servo panServo;
-Servo tiltServo;
-Servo doorLeft;
-Servo doorRight;
+// Logic Variables
+int buttonClicks = 1;
+int targetMoisture = 40;
+unsigned long lastPersonTime = 0;
+const unsigned long AUTO_WATER_INTERVAL = 600000; // 10 minutes in milliseconds (10 * 60 * 1000)
 
-long duration;
-int distance;
-bool studentDetected = false;
+Servo bottleServo;
 
 void setup() {
   Serial.begin(115200);
-
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
-  pinMode(LDR_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  
+  bottleServo.attach(SERVO_PIN);
+  bottleServo.write(0); // Valve closed
 
-  panServo.attach(PAN_PIN);
-  tiltServo.attach(TILT_PIN);
-  doorLeft.attach(DOOR_LEFT_PIN);
-  doorRight.attach(DOOR_RIGHT_PIN);
-
-  // Set Default Servo Positions
-  panServo.write(90);    // Center camera
-  tiltServo.write(45);   // Face height
-  closeDoors();          // Lock double door
-
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    for (;;);
-  }
-
-  showIdleScreen();
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.clearDisplay();
+  lastPersonTime = millis();
 }
 
-void loop() {
-  // Read Distance from Ultrasonic Sensor
+int getSoilMoisture() {
+  int raw = analogRead(SOIL_PIN);
+  // Map raw analog value (e.g., 4095 dry to 1500 wet) to 0-100%
+  int moisture = map(raw, 4095, 1500, 0, 100);
+  return constrain(moisture, 0, 100);
+}
+
+float getDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
-  
-  duration = pulseIn(ECHO_PIN, HIGH);
-  distance = duration * 0.034 / 2;
-
-  // 1. Detect Student
-  if (distance > 0 && distance <= 30 && !studentDetected) {
-    studentDetected = true;
-    triggerScanSequence();
-  }
-
-  // 2. Read Python Verification Results over Serial
-  if (Serial.available() > 0) {
-    String response = Serial.readStringUntil('\n');
-    response.trim();
-
-    if (response.startsWith("SUCCESS:")) {
-      String name = response.substring(8);
-      executeDoorEntrySequence(name);
-    } 
-    else if (response == "DUPLICATE") {
-      displayMessage("ALREADY MARKED", "Attendance recorded");
-      delay(3000);
-      resetRobot();
-    }
-    else if (response == "UNKNOWN") {
-      displayMessage("ACCESS DENIED", "Unknown Student");
-      delay(3000);
-      resetRobot();
-    }
-  }
-
-  delay(100);
+  long duration = pulseIn(ECHO_PIN, HIGH);
+  return duration * 0.034 / 2; // Distance in cm
 }
 
-void triggerScanSequence() {
-  displayMessage("STUDENT DETECTED", "Scanning Face & ID...");
-  tiltServo.write(45);
-  delay(800);
-  tiltServo.write(85);
-  delay(500);
-
-  Serial.println("START_SCAN");
-}
-
-void executeDoorEntrySequence(String name) {
-  displayMessage("WELCOME!", name.c_str());
-
-  // Open both door servos
-  openDoors();
-
-  // Wait for the single student to pass through the LDR beam
-  unsigned long timeoutStart = millis();
-  bool personPassed = false;
-
-  displayMessage("PASS THROUGH", "Door Unlocked");
-
-  while (millis() - timeoutStart < 8000) { // 8-second passage timeout limit
-    int ldrState = digitalRead(LDR_PIN);
-
-    // If light beam is interrupted (person is passing through doorway)
-    if (ldrState == HIGH) { // Adjust HIGH/LOW based on LDR module active state
-      personPassed = true;
-    }
+void loop() {
+  // 1. Read Button Clicks
+  static int lastBtnState = HIGH;
+  int btnState = digitalRead(BUTTON_PIN);
+  if (lastBtnState == HIGH && btnState == LOW) {
+    buttonClicks++;
+    if (buttonClicks > 3) buttonClicks = 1;
     
-    // Once beam clears after interruption, close doors immediately
-    if (personPassed && ldrState == LOW) {
-      delay(500); // Brief buffer time to let person clear the leaves
-      break;
+    if (buttonClicks == 1) targetMoisture = 40;
+    else if (buttonClicks == 2) targetMoisture = 60;
+    else if (buttonClicks == 3) targetMoisture = 80;
+    delay(200); // Debounce
+  }
+  lastBtnState = btnState;
+
+  // 2. Read Sensors
+  int currentMoisture = getSoilMoisture();
+  int requiredMoisture = targetMoisture - currentMoisture;
+  if (requiredMoisture < 0) requiredMoisture = 0;
+  
+  float distance = getDistance();
+  bool personNearby = (distance > 0 && distance < 50);
+
+  // 3. Handle Timers & Automation Logic
+  if (personNearby) {
+    lastPersonTime = millis(); // Reset 10-minute timer if someone is seen
+    if (currentMoisture < targetMoisture) {
+      digitalWrite(BUZZER_PIN, HIGH); // Alert nearby person
+    } else {
+      digitalWrite(BUZZER_PIN, LOW);
     }
-    delay(50);
+  } else {
+    digitalWrite(BUZZER_PIN, LOW);
   }
 
-  closeDoors();
-  resetRobot();
-}
+  // 10-Minute Timeout Trigger (No person detected for 10 min AND soil is dry)
+  if (!personNearby && (millis() - lastPersonTime >= AUTO_WATER_INTERVAL)) {
+    if (currentMoisture < targetMoisture) {
+      // Pour water automatically
+      bottleServo.write(90); // Open valve
+      delay(3000);           // Dispense for 3 seconds
+      bottleServo.write(0);  // Close valve
+      lastPersonTime = millis(); // Reset timer after watering
+    }
+  }
 
-void openDoors() {
-  doorLeft.write(90);   // Swing Left Door Open
-  doorRight.write(90);  // Swing Right Door Open
-}
-
-void closeDoors() {
-  doorLeft.write(0);    // Closed Position Left
-  doorRight.write(180); // Closed Position Right
-}
-
-void resetRobot() {
-  tiltServo.write(45);
-  panServo.write(90);
-  studentDetected = false;
-  showIdleScreen();
-}
-
-void displayMessage(const char* title, const char* subtitle) {
+  // 4. Update OLED Display
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(10, 15);
-  display.println(title);
-  display.setCursor(10, 35);
-  display.println(subtitle);
-  display.display();
-}
+  
+  display.setCursor(0, 0);
+  display.printf("SOIL MOISTURE: %d%%\n", currentMoisture);
+  
+  display.setCursor(0, 20);
+  display.printf("TARGET: %d%%\n", targetMoisture);
+  
+  display.setCursor(0, 40);
+  display.printf("WATER REQ: %d%%\n", requiredMoisture);
 
-void showIdleScreen() {
-  displayMessage("SMART ATTENDANCE", "[ Step Closer ]");
+  display.display();
+  delay(100);
 }
